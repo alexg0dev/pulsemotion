@@ -131,6 +131,8 @@ class AppState:
         self.humanization_intensity = 1.5
         self.timing_variance = 0.35
         self.profile_seed = 1001
+        self._last_web_enable_at = 0.0
+        self.hardware_toggle = True
 
         self._load_active_profile()
 
@@ -228,6 +230,21 @@ class AppState:
             self.is_enabled = not self.is_enabled
             return self.is_enabled
 
+    def set_enabled(self, enabled: bool, from_web: bool = False) -> bool:
+        with self.lock:
+            self.is_enabled = enabled
+            if from_web:
+                self._last_web_enable_at = time.time()
+            return self.is_enabled
+
+    def get_last_web_enable_at(self) -> float:
+        with self.lock:
+            return self._last_web_enable_at
+
+    def set_hardware_toggle(self, enabled: bool) -> None:
+        with self.lock:
+            self.hardware_toggle = enabled
+
     def set_toggle_button(self, button: str) -> str | None:
         with self.lock:
             if button in VALID_TOGGLE_BUTTONS:
@@ -278,6 +295,7 @@ class AppState:
                 "makcu_connected": makcu_controller.is_connected(),
                 "makcu": makcu_controller.get_debug(),
                 "last_move": motion_engine.last_move,
+                "hardware_toggle": self.hardware_toggle,
             }
 
 
@@ -291,11 +309,14 @@ def mouse_control_loop() -> None:
     lmb_hold_start: float | None = None
     lmb_was_down = False
     last_fp_key: tuple | None = None
+    last_hw_toggle_at = 0.0
 
     while True:
         if not makcu_controller.is_connected():
             time.sleep(0.5)
             makcu_controller.connect()
+            btn = app_state.get_toggle_button()
+            toggle_was_pressed = makcu_controller.get_button_state(btn)
             continue
 
         params = app_state.get_motion_params()
@@ -307,8 +328,21 @@ def mouse_control_loop() -> None:
 
         btn = app_state.get_toggle_button()
         toggle_pressed = makcu_controller.get_button_state(btn)
-        if toggle_pressed and not toggle_was_pressed:
+
+        with app_state.lock:
+            hw_toggle = app_state.hardware_toggle
+            web_grace = (time.time() - app_state._last_web_enable_at) < 0.6
+
+        if (
+            hw_toggle
+            and not web_grace
+            and toggle_pressed
+            and not toggle_was_pressed
+            and (time.time() - last_hw_toggle_at) > 0.35
+        ):
             app_state.toggle_enabled()
+            last_hw_toggle_at = time.time()
+
         toggle_was_pressed = toggle_pressed
 
         interlock = makcu_controller.get_interlock_held(
@@ -465,6 +499,25 @@ async def get_status():
 @app.post("/toggle")
 async def toggle_status():
     return {"is_enabled": app_state.toggle_enabled()}
+
+
+class SetEnabledRequest(BaseModel):
+    enabled: bool
+
+
+@app.post("/set-enabled")
+async def set_enabled_status(req: SetEnabledRequest):
+    return {"is_enabled": app_state.set_enabled(req.enabled, from_web=True)}
+
+
+class HardwareToggleRequest(BaseModel):
+    enabled: bool
+
+
+@app.post("/hardware-toggle")
+async def set_hardware_toggle(req: HardwareToggleRequest):
+    app_state.set_hardware_toggle(req.enabled)
+    return {"hardware_toggle": req.enabled}
 
 
 class ToggleButtonConfig(BaseModel):
