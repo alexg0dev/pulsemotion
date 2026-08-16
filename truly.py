@@ -386,6 +386,19 @@ def get_local_ip() -> str:
         return "127.0.0.1"
 
 
+def find_available_port(preferred: int = 8000, attempts: int = 20) -> int:
+    """Return preferred port if free, otherwise scan for the next open port."""
+    for offset in range(attempts):
+        port = preferred + offset
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            try:
+                s.bind(("0.0.0.0", port))
+                return port
+            except OSError:
+                continue
+    raise RuntimeError(f"No free port found in range {preferred}–{preferred + attempts - 1}")
+
+
 @app.get("/access")
 async def access_urls():
     ip = get_local_ip()
@@ -572,10 +585,28 @@ async def delete_config(gun_name: str):
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", "8000"))
+    preferred = int(os.environ.get("PORT", "8000"))
+    try:
+        port = find_available_port(preferred)
+    except RuntimeError as e:
+        print(f"\n  ERROR: {e}\n")
+        input("Press Enter to exit...")
+        raise SystemExit(1)
+
     ip = get_local_ip()
     print("\n  PulseMotion Input Calibration Suite")
+    if port != preferred:
+        print(f"  Note: Port {preferred} was busy — using {port} instead.")
     print(f"  This PC:     http://localhost:{port}")
     print(f"  Phone/LAN:   http://{ip}:{port}")
-    print("  Hold M4 + M5 (interlock) while firing for full compensation.\n")
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    print("  Hold M4 + M5 (interlock) while firing for full compensation.")
+    print("  Keep this window open while using PulseMotion.\n")
+
+    try:
+        uvicorn.run(app, host="0.0.0.0", port=port)
+    except OSError as e:
+        print(f"\n  ERROR: Could not start server — {e}\n")
+        input("Press Enter to exit...")
+        raise SystemExit(1)
+    except KeyboardInterrupt:
+        print("\n  PulseMotion stopped.")
