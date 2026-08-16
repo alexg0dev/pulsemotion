@@ -280,9 +280,9 @@
                 <option value="M5" selected>M5</option>
             </select>
             <label style="display:flex;align-items:center;gap:8px;margin-top:10px;font-size:0.82rem;">
-                <input type="checkbox" id="hardware-toggle" checked> Allow mouse button to toggle ON/OFF
+                <input type="checkbox" id="hardware-toggle"> Allow side mouse button (M5) to toggle ON/OFF
             </label>
-            <p class="hint">Uncheck if M5 keeps flipping it off when you use the phone UI.</p>
+            <p class="hint">Leave unchecked — use the ON button above. Requires Makcu connected.</p>
         </div>
     </div>
 
@@ -388,7 +388,7 @@ async function refreshStatus() {
     }
     let hint = '';
     if (!d.makcu_connected) hint = 'Plug in Makcu and restart. Recoil cannot work without it.';
-    else if (!d.is_enabled) hint = 'Tap ON above. If it flips back off, uncheck "Allow mouse button to toggle" in Motion tab.';
+    else if (!d.is_enabled) hint = d.makcu_connected ? 'Tap ON above to arm. Then hold RMB + LMB in game.' : 'Makcu not detected — plug in USB and restart start.bat';
     else if (d.interlock_required && !d.interlock_held) hint = 'Hold RMB + LMB together (aim + fire).';
     else if (d.makcu && d.makcu.buttons && d.makcu.buttons.LMB && d.makcu.buttons.RMB) hint = 'Active — RMB + LMB held, strength ' + Math.round((d.output_strength||0)*100) + '%';
     else if (d.makcu && d.makcu.buttons && d.makcu.buttons.LMB) hint = 'Hold RMB (aim) + LMB (fire) together.';
@@ -399,11 +399,25 @@ async function refreshStatus() {
 }
 
 function setEnabled(on) {
+    updateToggleButton(on);
     fetch('/set-enabled', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enabled: on }),
-    }).then(r => r.json()).then(data => updateToggleButton(data.is_enabled)).catch(() => {});
+    }).then(async r => {
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) {
+            updateToggleButton(false);
+            $('status-hint').textContent = data.detail || 'Failed to turn on.';
+            return;
+        }
+        updateToggleButton(data.is_enabled);
+        if (data.warning) $('status-hint').textContent = data.warning;
+        refreshStatus();
+    }).catch(() => {
+        updateToggleButton(false);
+        $('status-hint').textContent = 'Could not reach server. Check the app is running.';
+    });
 }
 
 function updateToggleButton(isEnabled) {
@@ -485,36 +499,6 @@ document.addEventListener('wheel', e => {
     });
 }, { passive: false });
 
-$('toggle-btn').onclick = () => {
-    const turningOn = $('toggle-btn').textContent !== 'ON';
-    setEnabled(turningOn);
-};
-$('toggle-button').onchange = () => fetch('/toggle-button', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ button: $('toggle-button').value }),
-});
-$('hardware-toggle').onchange = () => fetch('/hardware-toggle', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ enabled: $('hardware-toggle').checked }),
-});
-
-['tap-strength','tap-threshold','hold-ramp','spray-ramp','h-delay','h-duration',
- 'tremor-hz','fatigue-rate','humanization','timing-variance','phenotype','vertical-asymmetry',
- 'interlock-primary','interlock-secondary','interlock-required'].forEach(id => {
-    $(id).onchange = () => { pushState(); saveActiveProfile(); };
-});
-
-$('export-btn').onclick = () => window.location.href = '/profiles/' + activeSlot + '/export';
-$('import-file').onchange = async e => {
-    const f = e.target.files[0]; if (!f) return;
-    const text = await f.text();
-    await fetch('/profiles/' + activeSlot + '/import', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: text,
-    });
-    loadProfiles();
-};
-
 async function fetchGuns() {
     allGuns = Object.keys(await fetch('/configs').then(r => r.json()));
     filterGuns();
@@ -528,26 +512,6 @@ function filterGuns() {
         const o = document.createElement('option'); o.value = g; o.textContent = g; sel.appendChild(o);
     });
 }
-
-$('guns-dropdown').onchange = async () => {
-    const gun = $('guns-dropdown').value; if (!gun) return;
-    const data = await fetch('/configs').then(r => r.json());
-    const c = data[gun];
-    $('pull-down').value = c.pull_down ?? 0; $('pull-down-slider').value = c.pull_down ?? 0;
-    $('horizontal').value = c.horizontal ?? 0; $('horizontal-slider').value = c.horizontal ?? 0;
-    $('h-delay').value = c.horizontal_delay_ms ?? 500;
-    $('h-duration').value = c.horizontal_duration_ms ?? 2000;
-    pushState(); saveActiveProfile();
-};
-
-$('save-gun').onclick = async () => {
-    const name = $('gun-name').value.trim(); if (!name) return alert('Enter gun name');
-    await fetch('/configs', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ gun_name: name, pull_down_value: +$('pull-down').value,
-            horizontal_value: +$('horizontal').value, horizontal_delay_ms: +$('h-delay').value,
-            horizontal_duration_ms: +$('h-duration').value }) });
-    fetchGuns();
-};
 
 async function fetchConfigFiles() {
     const d = await fetch('/config-files').then(r => r.json());
@@ -565,6 +529,57 @@ document.addEventListener('DOMContentLoaded', () => {
     bindPair($('horizontal-slider'), $('horizontal'));
     bindPair($('humanization-slider'), $('humanization'));
     bindPair($('timing-variance-slider'), $('timing-variance'));
+
+    $('toggle-btn').onclick = () => {
+        const turningOn = $('toggle-btn').textContent.trim() !== 'ON';
+        setEnabled(turningOn);
+    };
+    $('toggle-button').onchange = () => fetch('/toggle-button', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ button: $('toggle-button').value }),
+    });
+    $('hardware-toggle').onchange = () => fetch('/hardware-toggle', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: $('hardware-toggle').checked }),
+    }).then(() => refreshStatus());
+
+    ['tap-strength','tap-threshold','hold-ramp','spray-ramp','h-delay','h-duration',
+     'tremor-hz','fatigue-rate','humanization','timing-variance','phenotype','vertical-asymmetry',
+     'interlock-primary','interlock-secondary','interlock-required'].forEach(id => {
+        $(id).onchange = () => { pushState(); saveActiveProfile(); };
+    });
+
+    $('export-btn').onclick = () => window.location.href = '/profiles/' + activeSlot + '/export';
+    $('import-file').onchange = async e => {
+        const f = e.target.files[0]; if (!f) return;
+        const text = await f.text();
+        await fetch('/profiles/' + activeSlot + '/import', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: text,
+        });
+        loadProfiles();
+    };
+
+    $('guns-dropdown').onchange = async () => {
+        const gun = $('guns-dropdown').value; if (!gun) return;
+        const data = await fetch('/configs').then(r => r.json());
+        const c = data[gun];
+        $('pull-down').value = c.pull_down ?? 0; $('pull-down-slider').value = c.pull_down ?? 0;
+        $('horizontal').value = c.horizontal ?? 0; $('horizontal-slider').value = c.horizontal ?? 0;
+        $('h-delay').value = c.horizontal_delay_ms ?? 500;
+        $('h-duration').value = c.horizontal_duration_ms ?? 2000;
+        pushState(); saveActiveProfile();
+    };
+
+    $('save-gun').onclick = async () => {
+        const name = $('gun-name').value.trim(); if (!name) return alert('Enter gun name');
+        await fetch('/configs', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ gun_name: name, pull_down_value: +$('pull-down').value,
+                horizontal_value: +$('horizontal').value, horizontal_delay_ms: +$('h-delay').value,
+                horizontal_duration_ms: +$('h-duration').value }) });
+        fetchGuns();
+    };
+
     connectWs();
     fetchAccess();
     loadProfiles();

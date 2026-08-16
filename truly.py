@@ -132,7 +132,8 @@ class AppState:
         self.timing_variance = 0.35
         self.profile_seed = 1001
         self._last_web_enable_at = 0.0
-        self.hardware_toggle = True
+        self.hardware_toggle = False
+        self._web_controls_enable = True
 
         self._load_active_profile()
 
@@ -269,7 +270,7 @@ class AppState:
 
     def get_status(self) -> dict:
         with self.lock:
-            return {
+            status = {
                 "is_enabled": self.is_enabled,
                 "toggle_button": self.toggle_button,
                 "pull_down": self.active_pull_down_value,
@@ -292,11 +293,12 @@ class AppState:
                 "phenotype": self.phenotype,
                 "humanization_intensity": self.humanization_intensity,
                 "timing_variance": self.timing_variance,
-                "makcu_connected": makcu_controller.is_connected(),
-                "makcu": makcu_controller.get_debug(),
-                "last_move": motion_engine.last_move,
                 "hardware_toggle": self.hardware_toggle,
             }
+        status["makcu_connected"] = makcu_controller.is_connected()
+        status["makcu"] = makcu_controller.get_debug()
+        status["last_move"] = motion_engine.last_move
+        return status
 
 
 app_state = AppState()
@@ -330,8 +332,8 @@ def mouse_control_loop() -> None:
         toggle_pressed = makcu_controller.get_button_state(btn)
 
         with app_state.lock:
-            hw_toggle = app_state.hardware_toggle
-            web_grace = (time.time() - app_state._last_web_enable_at) < 0.6
+            hw_toggle = app_state.hardware_toggle and not app_state._web_controls_enable
+            web_grace = (time.time() - app_state._last_web_enable_at) < 3.0
 
         if (
             hw_toggle
@@ -353,9 +355,7 @@ def mouse_control_loop() -> None:
 
         lmb_down = makcu_controller.get_button_state("LMB")
         rmb_down = makcu_controller.get_button_state("RMB")
-        with app_state.lock:
-            need_interlock = app_state.interlock_required
-        active = app_state.get_enabled() and (interlock if need_interlock else (lmb_down and rmb_down))
+        active = app_state.get_enabled()
 
         dt, skip_tick = motion_engine.next_interval()
         makcu_controller.refresh_button_states()
@@ -508,7 +508,16 @@ class SetEnabledRequest(BaseModel):
 
 @app.post("/set-enabled")
 async def set_enabled_status(req: SetEnabledRequest):
-    return {"is_enabled": app_state.set_enabled(req.enabled, from_web=True)}
+    if req.enabled:
+        makcu_controller.connect()
+    connected = makcu_controller.is_connected()
+    with app_state.lock:
+        app_state._web_controls_enable = True
+    enabled = app_state.set_enabled(req.enabled, from_web=True)
+    warning = None
+    if req.enabled and not connected:
+        warning = "Makcu not detected — plug in USB, then click ON again."
+    return {"is_enabled": enabled, "makcu_connected": connected, "warning": warning}
 
 
 class HardwareToggleRequest(BaseModel):
