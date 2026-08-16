@@ -55,6 +55,8 @@ class ProfileUpdate(BaseModel):
     fatigue_rate: float | None = Field(default=None, ge=0.005, le=0.1)
     phenotype: str | None = None
     vertical_asymmetry: float | None = Field(default=None, ge=1.15, le=1.25)
+    humanization_intensity: float | None = Field(default=None, ge=0.5, le=3.0)
+    timing_variance: float | None = Field(default=None, ge=0.0, le=1.0)
     interlock_primary: str | None = None
     interlock_secondary: str | None = None
     interlock_required: bool | None = None
@@ -126,6 +128,8 @@ class AppState:
         self.fatigue_rate = 0.025
         self.phenotype = "Conservative"
         self.vertical_asymmetry = 1.2
+        self.humanization_intensity = 1.5
+        self.timing_variance = 0.35
         self.profile_seed = 1001
 
         self._load_active_profile()
@@ -151,6 +155,8 @@ class AppState:
         self.fatigue_rate = float(p.get("fatigue_rate", 0.025))
         self.phenotype = p.get("phenotype", "Conservative")
         self.vertical_asymmetry = float(p.get("vertical_asymmetry", 1.2))
+        self.humanization_intensity = float(p.get("humanization_intensity", 1.5))
+        self.timing_variance = float(p.get("timing_variance", 0.35))
         self.profile_seed = int(p.get("seed", 1000 + self.active_slot * 137))
 
     def fingerprint(self) -> ProfileFingerprint:
@@ -160,6 +166,8 @@ class AppState:
             fatigue_rate=self.fatigue_rate,
             phenotype=self.phenotype,
             vertical_asymmetry=self.vertical_asymmetry,
+            humanization_intensity=self.humanization_intensity,
+            timing_variance=self.timing_variance,
         )
 
     def update_from_ws(self, msg: dict) -> None:
@@ -177,6 +185,8 @@ class AppState:
                 ("fatigue_rate", "fatigue_rate", float),
                 ("phenotype", "phenotype", str),
                 ("vertical_asymmetry", "vertical_asymmetry", float),
+                ("humanization_intensity", "humanization_intensity", float),
+                ("timing_variance", "timing_variance", float),
                 ("interlock_primary", "interlock_primary", str),
                 ("interlock_secondary", "interlock_secondary", str),
                 ("interlock_required", "interlock_required", bool),
@@ -263,6 +273,8 @@ class AppState:
                 "output_strength": self.output_strength,
                 "tremor_hz": self.tremor_hz,
                 "phenotype": self.phenotype,
+                "humanization_intensity": self.humanization_intensity,
+                "timing_variance": self.timing_variance,
             }
 
 
@@ -274,7 +286,8 @@ def mouse_control_loop() -> None:
     makcu_controller.StartButtonListener()
     toggle_was_pressed = False
     lmb_hold_start: float | None = None
-    last_fp_seed: int | None = None
+    lmb_was_down = False
+    last_fp_key: tuple | None = None
 
     while True:
         if not makcu_controller.is_connected():
@@ -284,9 +297,10 @@ def mouse_control_loop() -> None:
 
         params = app_state.get_motion_params()
         fp = app_state.fingerprint()
-        if last_fp_seed != fp.seed:
+        fp_key = (fp.seed, fp.tremor_hz, fp.humanization_intensity, fp.timing_variance, fp.phenotype)
+        if fp_key != last_fp_key:
             motion_engine.set_fingerprint(fp)
-            last_fp_seed = fp.seed
+            last_fp_key = fp_key
 
         btn = app_state.get_toggle_button()
         toggle_pressed = makcu_controller.get_button_state(btn)
@@ -305,7 +319,13 @@ def mouse_control_loop() -> None:
             need_interlock = app_state.interlock_required
         enabled = app_state.get_enabled() and (interlock if need_interlock else True)
 
+        dt, skip_tick = motion_engine.next_interval()
+
         if enabled and lmb_down:
+            if not lmb_was_down:
+                motion_engine.begin_activation()
+            lmb_was_down = True
+
             now = time.time()
             if lmb_hold_start is None:
                 lmb_hold_start = now
@@ -320,25 +340,29 @@ def mouse_control_loop() -> None:
             )
             app_state.set_output_strength(strength)
 
-            pull_value = params["pull_down"] * strength
-            target_y = pull_value / 5.0 if pull_value > 0 else 0.0
+            if not skip_tick:
+                pull_value = params["pull_down"] * strength
+                target_y = pull_value / 5.0 if pull_value > 0 else 0.0
 
-            target_x = 0.0
-            delay = params["horizontal_delay_ms"]
-            duration = params["horizontal_duration_ms"]
-            if hold_ms >= delay and (duration == 0 or hold_ms <= delay + duration):
-                h_value = params["horizontal"] * strength
-                target_x = h_value / 5.0
+                target_x = 0.0
+                delay = params["horizontal_delay_ms"]
+                duration = params["horizontal_duration_ms"]
+                if hold_ms >= delay and (duration == 0 or hold_ms <= delay + duration):
+                    h_value = params["horizontal"] * strength
+                    target_x = h_value / 5.0
 
-            ix, iy = motion_engine.step(target_x, target_y, strength, engaged=True, dt=0.01)
-            if ix or iy:
-                makcu_controller.simple_move_mouse(ix, iy)
+                ix, iy = motion_engine.step(target_x, target_y, strength, engaged=True, dt=dt)
+                if ix or iy:
+                    makcu_controller.simple_move_mouse(ix, iy)
         else:
+            if lmb_was_down:
+                motion_engine.end_activation()
+            lmb_was_down = False
             lmb_hold_start = None
             app_state.set_output_strength(0.0)
-            motion_engine.step(0, 0, 0, engaged=False, dt=0.01)
+            motion_engine.step(0, 0, 0, engaged=False, dt=dt)
 
-        time.sleep(0.01)
+        time.sleep(dt)
 
 
 @asynccontextmanager

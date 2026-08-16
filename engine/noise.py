@@ -63,21 +63,25 @@ class SeededSimplex2D:
 
 
 class OrnsteinUhlenbeck:
-    """Temporally correlated noise via OU process."""
+    """Temporally correlated noise via OU process (pink-ish when chained)."""
 
-    def __init__(self, theta: float, sigma: float, mu: float = 0.0, x0: float = 0.0):
+    def __init__(self, seed: int, theta: float, sigma: float, mu: float = 0.0, x0: float = 0.0):
         self.theta = theta
         self.sigma = sigma
         self.mu = mu
         self.x = x0
         self._step_idx = 0
-        self._simplex = SeededSimplex1D(int(abs(mu * 1000) + sigma * 100))
+        self._simplex = SeededSimplex1D(seed)
 
     def step(self, dt: float) -> float:
         self._step_idx += 1
         dw = self._simplex.sample(self._step_idx * 0.137 + dt * 50.0)
         self.x += self.theta * (self.mu - self.x) * dt + self.sigma * math.sqrt(max(dt, 1e-6)) * dw
         return self.x
+
+    def reset(self, x0: float = 0.0) -> None:
+        self.x = x0
+        self._step_idx = 0
 
 
 class BandLimitedTremor:
@@ -86,12 +90,38 @@ class BandLimitedTremor:
     def __init__(self, seed: int, frequency_hz: float = 10.0):
         self.frequency = frequency_hz
         self.phase = (seed % 628) / 100.0
-        self._ou = OrnsteinUhlenbeck(theta=2.0, sigma=0.15, mu=0.0, x0=0.01)
+        self._ou = OrnsteinUhlenbeck(seed + 3, theta=2.0, sigma=0.15, mu=0.0, x0=0.01)
         self._simplex = SeededSimplex1D(seed + 7919)
+        self._time_offset = (seed % 1000) / 500.0
 
-    def sample(self, t: float) -> float:
-        base = math.sin(2 * math.pi * self.frequency * t + self.phase)
-        mod = self._simplex.sample(t * 3.7) * 0.3
+    def sample(self, t: float, intensity: float = 1.0) -> float:
+        tt = t + self._time_offset
+        base = math.sin(2 * math.pi * self.frequency * tt + self.phase)
+        harmonics = math.sin(2 * math.pi * self.frequency * 1.7 * tt + self.phase * 0.6) * 0.35
+        mod = self._simplex.sample(tt * 3.7) * 0.35
         ou = self._ou.step(0.001)
-        amp = 0.08 + abs(ou) * 0.04
-        return (base + mod) * amp + 0.02  # never zero
+        amp = (0.12 + abs(ou) * 0.06) * intensity
+        return (base + harmonics + mod) * amp + 0.015 * intensity
+
+
+class HumanTickScheduler:
+    """Variable inter-tick intervals and micro-pauses — seeded, not uniform."""
+
+    def __init__(self, seed: int):
+        self._simplex = SeededSimplex1D(seed + 4201)
+        self._pause_ou = OrnsteinUhlenbeck(seed + 4202, theta=2.5, sigma=0.6, mu=0.0)
+        self._tick = 0
+
+    def next_delay(self, base_ms: float = 10.0, variance: float = 0.35) -> tuple[float, bool]:
+        """
+        Returns (delay_seconds, skip_tick).
+        skip_tick=True simulates brief hand hesitation / missed motor frame.
+        """
+        self._tick += 1
+        t = self._tick * 0.083
+        jitter = self._simplex.sample(t) * variance
+        delay_ms = base_ms * (1.0 + jitter * 0.45)
+        delay_ms = max(6.0, min(18.0, delay_ms))
+        pause_signal = self._pause_ou.step(delay_ms / 1000.0)
+        skip = pause_signal > 0.72 and self._simplex.sample(t + 17.3) > 0.55
+        return delay_ms / 1000.0, skip

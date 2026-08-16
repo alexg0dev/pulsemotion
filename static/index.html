@@ -234,6 +234,18 @@
 
     <div id="panel-motion" class="tab-panel">
         <div class="card">
+            <div class="label">Humanization intensity</div>
+            <input type="number" class="num" id="humanization" min="0.5" max="3" step="0.1" value="1.5">
+            <input type="range" id="humanization-slider" min="0.5" max="3" step="0.1" value="1.5">
+            <p class="hint">1.0 = subtle · 1.5 = realistic hand (default) · 2.5+ = very organic</p>
+        </div>
+        <div class="card">
+            <div class="label">Timing variance</div>
+            <input type="number" id="timing-variance" min="0" max="1" step="0.05" value="0.35">
+            <input type="range" id="timing-variance-slider" min="0" max="1" step="0.05" value="0.35">
+            <p class="hint">Irregular tick intervals + micro-pauses like real hand motor control.</p>
+        </div>
+        <div class="card">
             <div class="label">Physiological fingerprint</div>
             <div class="row">
                 <div>
@@ -311,6 +323,8 @@ function statePayload() {
         spray_ramp_ms: parseInt($('spray-ramp').value) || 300,
         tremor_hz: parseFloat($('tremor-hz').value) || 10,
         fatigue_rate: parseFloat($('fatigue-rate').value) || 0.025,
+        humanization_intensity: parseFloat($('humanization').value) || 1.5,
+        timing_variance: parseFloat($('timing-variance').value) || 0.35,
         phenotype: $('phenotype').value,
         vertical_asymmetry: parseFloat($('vertical-asymmetry').value) || 1.2,
         interlock_primary: $('interlock-primary').value,
@@ -397,6 +411,10 @@ function applyProfile(p) {
     $('spray-ramp').value = p.spray_ramp_ms ?? 300;
     $('tremor-hz').value = p.tremor_hz ?? 10;
     $('fatigue-rate').value = p.fatigue_rate ?? 0.025;
+    $('humanization').value = p.humanization_intensity ?? 1.5;
+    $('humanization-slider').value = p.humanization_intensity ?? 1.5;
+    $('timing-variance').value = p.timing_variance ?? 0.35;
+    $('timing-variance-slider').value = p.timing_variance ?? 0.35;
     $('phenotype').value = p.phenotype ?? 'Conservative';
     $('vertical-asymmetry').value = p.vertical_asymmetry ?? 1.2;
     $('interlock-primary').value = p.interlock_primary ?? 'M4';
@@ -436,7 +454,7 @@ $('toggle-button').onchange = () => fetch('/toggle-button', {
 });
 
 ['tap-strength','tap-threshold','hold-ramp','spray-ramp','h-delay','h-duration',
- 'tremor-hz','fatigue-rate','phenotype','vertical-asymmetry',
+ 'tremor-hz','fatigue-rate','humanization','timing-variance','phenotype','vertical-asymmetry',
  'interlock-primary','interlock-secondary','interlock-required'].forEach(id => {
     $(id).onchange = () => { pushState(); saveActiveProfile(); };
 });
@@ -500,6 +518,8 @@ document.addEventListener('DOMContentLoaded', () => {
     setupTabs();
     bindPair($('pull-down-slider'), $('pull-down'));
     bindPair($('horizontal-slider'), $('horizontal'));
+    bindPair($('humanization-slider'), $('humanization'));
+    bindPair($('timing-variance-slider'), $('timing-variance'));
     connectWs();
     fetchAccess();
     loadProfiles();

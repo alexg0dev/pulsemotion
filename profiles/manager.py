@@ -17,6 +17,8 @@ DEFAULT_PROFILE_TEMPLATE = {
     "fatigue_rate": 0.025,
     "phenotype": "Conservative",
     "vertical_asymmetry": 1.2,
+    "humanization_intensity": 1.5,
+    "timing_variance": 0.35,
     "pull_down": 50.0,
     "horizontal": 0.0,
     "horizontal_delay_ms": 500,
