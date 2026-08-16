@@ -4,6 +4,6 @@ __pycache__/
 .venv/
 venv/
 .env
-configs/_export_profile_*.json
+port.txt
 .DS_Store
 *.log

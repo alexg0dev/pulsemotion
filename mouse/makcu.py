@@ -109,10 +109,14 @@ class makcu_controller:
 
                     makcu_controller.is_connected_flag = True
                     makcu_controller.last_error = None
+                    makcu_controller._logged_connect_fail = False
+                    print("[MAKCU] Connected.")
 
                 except Exception as e:
                     makcu_controller.last_error = str(e)
-                    print(f"[MAKCU] Connection error: {e}")
+                    if not getattr(makcu_controller, "_logged_connect_fail", False):
+                        print(f"[MAKCU] Connection error: {e}")
+                        makcu_controller._logged_connect_fail = True
                     makcu_controller.is_connected_flag = False
                     makcu_controller.controller = None
                     return None

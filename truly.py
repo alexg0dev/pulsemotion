@@ -3,6 +3,7 @@ import os
 import socket
 import threading
 import time
+import webbrowser
 from contextlib import asynccontextmanager
 
 import uvicorn
@@ -120,7 +121,7 @@ class AppState:
 
         self.interlock_primary = "LMB"
         self.interlock_secondary = "RMB"
-        self.interlock_required = True
+        self.interlock_required = False
         self.interlock_held = False
         self.output_strength = 0.0
 
@@ -152,7 +153,7 @@ class AppState:
         self.spray_ramp_ms = int(p.get("spray_ramp_ms", 300))
         self.interlock_primary = p.get("interlock_primary", "LMB")
         self.interlock_secondary = p.get("interlock_secondary", "RMB")
-        self.interlock_required = bool(p.get("interlock_required", True))
+        self.interlock_required = bool(p.get("interlock_required", False))
         self.secondary_slot = int(p.get("secondary_slot", 2))
         self.tremor_hz = float(p.get("tremor_hz", 10.0))
         self.fatigue_rate = float(p.get("fatigue_rate", 0.025))
@@ -295,18 +296,23 @@ app_state.last_move = (0, 0)
 
 
 def mouse_control_loop() -> None:
-    """Original Truly recoil loop + tap/hold strength + LMB+RMB requirement."""
+    """Original Truly recoil: enabled + LMB. Optional RMB via interlock setting."""
     makcu_controller.StartButtonListener()
     toggle_was_pressed = False
     lmb_hold_start: float | None = None
     last_hw_toggle_at = 0.0
+    makcu_warned = False
 
     while True:
         if not makcu_controller.is_connected():
-            time.sleep(0.5)
+            if not makcu_warned:
+                print("[MAKCU] Waiting for device... plug in and it will connect automatically.")
+                makcu_warned = True
+            time.sleep(1.0)
             makcu_controller.connect()
             toggle_was_pressed = makcu_controller.get_button_state(app_state.get_toggle_button())
             continue
+        makcu_warned = False
 
         params = app_state.get_motion_params()
 
@@ -316,6 +322,7 @@ def mouse_control_loop() -> None:
         with app_state.lock:
             hw_toggle = app_state.hardware_toggle and not app_state._web_controls_enable
             web_grace = (time.time() - app_state._last_web_enable_at) < 3.0
+            need_rmb = app_state.interlock_required
 
         if (
             hw_toggle
@@ -334,8 +341,9 @@ def mouse_control_loop() -> None:
         app_state.set_interlock_held(lmb_down and rmb_down)
 
         enabled = app_state.get_enabled()
+        can_compensate = lmb_down and (rmb_down if need_rmb else True)
 
-        if enabled and lmb_down and rmb_down:
+        if enabled and can_compensate:
             now = time.time()
             if lmb_hold_start is None:
                 lmb_hold_start = now
@@ -425,6 +433,11 @@ async def manifest():
         "background_color": "#0a0a0f",
         "theme_color": "#6c5ce7",
     })
+
+
+@app.get("/health")
+async def health():
+    return {"ok": True, "port": int(os.environ.get("PORT", "8000"))}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -626,13 +639,27 @@ if __name__ == "__main__":
         raise SystemExit(1)
 
     ip = get_local_ip()
-    print("\n  PulseMotion Input Calibration Suite")
+    os.environ["PORT"] = str(port)
+    url = f"http://localhost:{port}"
+    lan = f"http://{ip}:{port}"
+
+    try:
+        with open(os.path.join(os.path.dirname(__file__), "port.txt"), "w", encoding="utf-8") as f:
+            f.write(str(port))
+    except OSError:
+        pass
+
+    print("\n  PulseMotion / Truly Recoil")
     if port != preferred:
         print(f"  Note: Port {preferred} was busy — using {port} instead.")
-    print(f"  This PC:     http://localhost:{port}")
-    print(f"  Phone/LAN:   http://{ip}:{port}")
-    print("  Truly-style recoil — ON in UI, then hold RMB + LMB in game.")
-    print("  Keep this window open while using PulseMotion.\n")
+    print(f"  OPEN THIS:  {url}")
+    print(f"  Phone/LAN:  {lan}")
+    print("  1. Click ON in the browser")
+    print("  2. Load a gun preset (Guns tab)")
+    print("  3. Hold LMB in game (optional RMB if interlock enabled)")
+    print("  Keep this window open!\n")
+
+    threading.Timer(1.5, lambda: webbrowser.open(url)).start()
 
     try:
         uvicorn.run(app, host="0.0.0.0", port=port)

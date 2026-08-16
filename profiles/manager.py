@@ -29,7 +29,7 @@ DEFAULT_PROFILE_TEMPLATE = {
     "spray_ramp_ms": 300,
     "interlock_primary": "LMB",
     "interlock_secondary": "RMB",
-    "interlock_required": True,
+    "interlock_required": False,
     "scroll_up_action": "primary",
     "scroll_down_action": "secondary",
     "primary_slot": 1,
