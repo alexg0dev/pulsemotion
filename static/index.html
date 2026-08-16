@@ -395,7 +395,21 @@ async function refreshStatus() {
     $('status-hint').textContent = hint;
     $('strength-meter').style.width = Math.round((d.output_strength || 0) * 100) + '%';
     if (d.toggle_button) $('toggle-button').value = d.toggle_button;
-    if ($('hardware-toggle')) $('hardware-toggle').checked = d.hardware_toggle !== false;
+    if ($('hardware-toggle')) $('hardware-toggle').checked = d.hardware_toggle === true;
+}
+
+async function checkServerVersion() {
+    try {
+        const r = await fetch('/health');
+        if (!r.ok) throw new Error('old server');
+        const d = await r.json();
+        if (!d.ok) throw new Error('bad health');
+    } catch (e) {
+        $('access-links').innerHTML =
+            '<strong style="color:#ff6b6b;">Wrong or outdated server.</strong> ' +
+            'Close all PulseMotion windows, run <code>stop.bat</code> then <code>start.bat</code>, ' +
+            'and use the URL printed in the console (not an old bookmark).';
+    }
 }
 
 function setEnabled(on) {
@@ -582,6 +596,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     connectWs();
     fetchAccess();
+    checkServerVersion();
     loadProfiles();
     fetchGuns();
     fetchConfigFiles();
