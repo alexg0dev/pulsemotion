@@ -118,9 +118,9 @@ class AppState:
         self.hold_ramp_ms = 200
         self.spray_ramp_ms = 300
 
-        self.interlock_primary = "M4"
-        self.interlock_secondary = "M5"
-        self.interlock_required = False
+        self.interlock_primary = "LMB"
+        self.interlock_secondary = "RMB"
+        self.interlock_required = True
         self.interlock_held = False
         self.output_strength = 0.0
 
@@ -149,9 +149,9 @@ class AppState:
         self.tap_threshold_ms = int(p.get("tap_threshold_ms", 180))
         self.hold_ramp_ms = int(p.get("hold_ramp_ms", 200))
         self.spray_ramp_ms = int(p.get("spray_ramp_ms", 300))
-        self.interlock_primary = p.get("interlock_primary", "M4")
-        self.interlock_secondary = p.get("interlock_secondary", "M5")
-        self.interlock_required = bool(p.get("interlock_required", False))
+        self.interlock_primary = p.get("interlock_primary", "LMB")
+        self.interlock_secondary = p.get("interlock_secondary", "RMB")
+        self.interlock_required = bool(p.get("interlock_required", True))
         self.secondary_slot = int(p.get("secondary_slot", 2))
         self.tremor_hz = float(p.get("tremor_hz", 10.0))
         self.fatigue_rate = float(p.get("fatigue_rate", 0.025))
@@ -352,14 +352,15 @@ def mouse_control_loop() -> None:
         app_state.set_interlock_held(interlock)
 
         lmb_down = makcu_controller.get_button_state("LMB")
+        rmb_down = makcu_controller.get_button_state("RMB")
         with app_state.lock:
             need_interlock = app_state.interlock_required
-        enabled = app_state.get_enabled() and (interlock if need_interlock else True)
+        active = app_state.get_enabled() and (interlock if need_interlock else (lmb_down and rmb_down))
 
         dt, skip_tick = motion_engine.next_interval()
         makcu_controller.refresh_button_states()
 
-        if enabled and lmb_down:
+        if active and lmb_down and rmb_down:
             if not lmb_was_down:
                 motion_engine.begin_activation()
             lmb_was_down = True
@@ -665,7 +666,7 @@ if __name__ == "__main__":
         print(f"  Note: Port {preferred} was busy — using {port} instead.")
     print(f"  This PC:     http://localhost:{port}")
     print(f"  Phone/LAN:   http://{ip}:{port}")
-    print("  Hold M4 + M5 (interlock) while firing for full compensation.")
+    print("  Hold LMB + RMB (aim + fire) for compensation when ON.")
     print("  Keep this window open while using PulseMotion.\n")
 
     try:

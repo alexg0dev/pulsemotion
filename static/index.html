@@ -205,22 +205,26 @@
             <p class="hint" style="margin-top:10px;">Scroll up = primary · Scroll down = secondary profile</p>
         </div>
         <div class="card">
-            <div class="label">Safety interlock (both must be held)</div>
+            <div class="label">Activation buttons (both must be held)</div>
             <div class="row">
                 <select id="interlock-primary">
+                    <option value="LMB" selected>LMB (Fire)</option>
+                    <option value="RMB">RMB (Aim)</option>
                     <option value="M4">M4 (Back)</option>
                     <option value="M5">M5 (Forward)</option>
                     <option value="MMB">Middle</option>
                 </select>
                 <select id="interlock-secondary">
-                    <option value="M5" selected>M5 (Forward)</option>
+                    <option value="RMB" selected>RMB (Aim)</option>
+                    <option value="LMB">LMB (Fire)</option>
+                    <option value="M5">M5 (Forward)</option>
                     <option value="M4">M4 (Back)</option>
                     <option value="MMB">Middle</option>
                 </select>
             </div>
-            <p class="hint">Simulation only runs while both buttons are held + system enabled.</p>
+            <p class="hint">Default: hold <strong>RMB + LMB</strong> together (ADS + shoot) for recoil to apply.</p>
             <label style="display:flex;align-items:center;gap:8px;margin-top:10px;font-size:0.82rem;">
-                <input type="checkbox" id="interlock-required"> Require interlock (M4+M5) to fire
+                <input type="checkbox" id="interlock-required" checked> Require both buttons to compensate
             </label>
         </div>
         <div class="card">
@@ -385,9 +389,9 @@ async function refreshStatus() {
     let hint = '';
     if (!d.makcu_connected) hint = 'Plug in Makcu and restart. Recoil cannot work without it.';
     else if (!d.is_enabled) hint = 'Tap ON above. If it flips back off, uncheck "Allow mouse button to toggle" in Motion tab.';
-    else if (d.interlock_required && !d.interlock_held) hint = 'Hold M4 + M5 while shooting (interlock enabled).';
-    else if (d.makcu && d.makcu.buttons && !d.makcu.buttons.LMB) hint = 'Enabled — hold LMB in game to compensate.';
-    else if (d.makcu && d.makcu.buttons && d.makcu.buttons.LMB) hint = 'Firing — strength ' + Math.round((d.output_strength||0)*100) + '%';
+    else if (d.interlock_required && !d.interlock_held) hint = 'Hold RMB + LMB together (aim + fire).';
+    else if (d.makcu && d.makcu.buttons && d.makcu.buttons.LMB && d.makcu.buttons.RMB) hint = 'Active — RMB + LMB held, strength ' + Math.round((d.output_strength||0)*100) + '%';
+    else if (d.makcu && d.makcu.buttons && d.makcu.buttons.LMB) hint = 'Hold RMB (aim) + LMB (fire) together.';
     $('status-hint').textContent = hint;
     $('strength-meter').style.width = Math.round((d.output_strength || 0) * 100) + '%';
     if (d.toggle_button) $('toggle-button').value = d.toggle_button;
@@ -451,9 +455,9 @@ function applyProfile(p) {
     $('timing-variance-slider').value = p.timing_variance ?? 0.35;
     $('phenotype').value = p.phenotype ?? 'Conservative';
     $('vertical-asymmetry').value = p.vertical_asymmetry ?? 1.2;
-    $('interlock-primary').value = p.interlock_primary ?? 'M4';
-    $('interlock-secondary').value = p.interlock_secondary ?? 'M5';
-    $('interlock-required').checked = !!p.interlock_required;
+    $('interlock-primary').value = p.interlock_primary ?? 'LMB';
+    $('interlock-secondary').value = p.interlock_secondary ?? 'RMB';
+    $('interlock-required').checked = p.interlock_required !== false;
     secondarySlot = p.secondary_slot ?? 2;
     pushState();
 }
