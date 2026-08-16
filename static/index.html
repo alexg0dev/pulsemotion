@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>PulseMotion</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <link rel="manifest" href="/manifest.json">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap');
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --bg: #0a0a0f;
+            --card: #12121a;
+            --border: #252532;
+            --text: #e8e8f0;
+            --muted: #6b6b80;
+            --accent: #6c5ce7;
+            --green: #00d68f;
+            --red: #ff6b6b;
+            --amber: #feca57;
+        }
+        body {
+            font-family: 'DM Sans', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            padding: 24px 16px 48px;
+        }
+        .wrap { max-width: 480px; margin: 0 auto; }
+        header { text-align: center; margin-bottom: 24px; }
+        h1 { font-size: 1.75rem; font-weight: 700; letter-spacing: -0.03em; }
+        .subtitle { color: var(--muted); font-size: 0.8rem; margin-top: 4px; }
+        .link-bar {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 10px 14px;
+            margin-bottom: 16px;
+            font-size: 0.75rem;
+            word-break: break-all;
+        }
+        .link-bar a { color: var(--accent); text-decoration: none; }
+        .status-pill {
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 4px 10px; border-radius: 20px; font-size: 0.7rem;
+            font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;
+        }
+        .status-pill.on { background: #0d2a1f; color: var(--green); }
+        .status-pill.off { background: #2a0d0d; color: var(--red); }
+        .status-pill.interlock { background: #2a2510; color: var(--amber); margin-left: 8px; }
+        .card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 10px;
+        }
+        .label {
+            font-size: 0.68rem; font-weight: 600; text-transform: uppercase;
+            letter-spacing: 0.08em; color: var(--muted); margin-bottom: 10px;
+        }
+        .tabs { display: flex; gap: 4px; margin-bottom: 14px; flex-wrap: wrap; }
+        .tab {
+            flex: 1; min-width: 70px; padding: 10px 8px; border: 1px solid var(--border);
+            background: transparent; color: var(--muted); border-radius: 8px;
+            font-family: inherit; font-size: 0.78rem; font-weight: 500; cursor: pointer;
+        }
+        .tab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+        .tab-panel { display: none; }
+        .tab-panel.active { display: block; }
+        input[type="range"] { width: 100%; accent-color: var(--accent); }
+        .num {
+            font-size: 1.6rem; font-weight: 700; background: transparent; border: none;
+            color: #fff; width: 100%; outline: none; font-family: inherit;
+        }
+        .hint { font-size: 0.72rem; color: var(--muted); margin-top: 6px; }
+        select, input[type="text"], input[type="number"] {
+            width: 100%; background: #0d0d14; border: 1px solid var(--border);
+            border-radius: 8px; color: var(--text); padding: 10px 12px;
+            font-family: inherit; font-size: 0.85rem;
+        }
+        .row { display: flex; gap: 8px; align-items: center; }
+        .row > * { flex: 1; }
+        .btn {
+            padding: 10px 14px; border-radius: 8px; border: 1px solid var(--border);
+            background: #1a1a24; color: var(--text); font-family: inherit;
+            font-size: 0.82rem; font-weight: 500; cursor: pointer;
+        }
+        .btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+        .btn-danger { background: #2a1018; border-color: #5a2030; color: var(--red); }
+        #toggle-btn {
+            width: 100%; padding: 18px; font-size: 1.1rem; font-weight: 700;
+            border-radius: 10px; border: 2px solid var(--border); cursor: pointer;
+            font-family: inherit; transition: all 0.2s;
+        }
+        #toggle-btn.enabled { background: #0a2218; border-color: var(--green); color: var(--green); }
+        #toggle-btn.disabled { background: #1a1010; border-color: var(--red); color: var(--red); }
+        .live-meter {
+            height: 6px; background: #1a1a24; border-radius: 3px; margin-top: 8px; overflow: hidden;
+        }
+        .live-meter-fill {
+            height: 100%; background: linear-gradient(90deg, var(--amber), var(--green));
+            width: 0%; transition: width 0.05s linear;
+        }
+        .profile-grid {
+            display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; max-height: 200px;
+            overflow-y: auto;
+        }
+        .profile-chip {
+            padding: 8px 4px; text-align: center; font-size: 0.65rem;
+            border-radius: 6px; border: 1px solid var(--border); cursor: pointer;
+            background: #0d0d14;
+        }
+        .profile-chip.active { border-color: var(--accent); background: #1a1530; color: #fff; }
+        .profile-chip.secondary { border-color: var(--amber); }
+    </style>
+</head>
+<body>
+<div class="wrap">
+    <header>
+        <h1>PulseMotion</h1>
+        <p class="subtitle">Input calibration · local profiles · biomechanical motion</p>
+    </header>
+
+    <div class="link-bar" id="access-links">Loading access URLs…</div>
+
+    <div class="card">
+        <div class="label">System Status</div>
+        <div>
+            <span class="status-pill off" id="status-pill">OFF</span>
+            <span class="status-pill interlock" id="interlock-pill">Interlock: —</span>
+        </div>
+        <div style="margin-top:12px;">
+            <div class="label">Output strength (tap 50% → hold 100%)</div>
+            <div class="live-meter"><div class="live-meter-fill" id="strength-meter"></div></div>
+        </div>
+        <button id="toggle-btn" class="disabled" style="margin-top:14px;">OFF</button>
+    </div>
+
+    <div class="tabs">
+        <button class="tab active" data-tab="calibrate">Calibrate</button>
+        <button class="tab" data-tab="profiles">Profiles</button>
+        <button class="tab" data-tab="motion">Motion</button>
+        <button class="tab" data-tab="guns">Guns</button>
+    </div>
+
+    <div id="panel-calibrate" class="tab-panel active">
+        <div class="card">
+            <div class="label">Vertical (Pull-down)</div>
+            <input type="number" class="num" id="pull-down" min="0" max="300" step="0.1" value="50">
+            <input type="range" id="pull-down-slider" min="0" max="300" value="50">
+        </div>
+        <div class="card">
+            <div class="label">Horizontal</div>
+            <input type="number" class="num" id="horizontal" min="-300" max="300" step="0.1" value="0">
+            <input type="range" id="horizontal-slider" min="-300" max="300" value="0">
+            <p class="hint">Negative = left · Positive = right</p>
+        </div>
+        <div class="card">
+            <div class="label">Tap vs Hold</div>
+            <div class="row">
+                <div>
+                    <div class="label">Tap strength</div>
+                    <input type="number" id="tap-strength" min="0.1" max="1" step="0.05" value="0.5">
+                </div>
+                <div>
+                    <div class="label">Tap threshold (ms)</div>
+                    <input type="number" id="tap-threshold" min="50" max="400" step="10" value="180">
+                </div>
+            </div>
+            <div class="row" style="margin-top:8px;">
+                <div>
+                    <div class="label">Hold ramp (ms)</div>
+                    <input type="number" id="hold-ramp" min="0" max="1000" step="10" value="200">
+                </div>
+                <div>
+                    <div class="label">Spray ramp (ms)</div>
+                    <input type="number" id="spray-ramp" min="0" max="2000" step="10" value="300">
+                </div>
+            </div>
+            <p class="hint">Quick tap = partial compensation. Sustained hold ramps to full strength.</p>
+        </div>
+        <div class="card">
+            <div class="label">Horizontal timing</div>
+            <div class="row">
+                <div>
+                    <div class="label">Delay (ms)</div>
+                    <input type="number" id="h-delay" min="0" max="5000" value="500">
+                </div>
+                <div>
+                    <div class="label">Duration (ms)</div>
+                    <input type="number" id="h-duration" min="0" max="10000" value="2000">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="panel-profiles" class="tab-panel">
+        <div class="card">
+            <div class="label">40 Local Profiles · scroll wheel switches primary/secondary</div>
+            <div class="profile-grid" id="profile-grid"></div>
+            <p class="hint" style="margin-top:10px;">Scroll up = primary · Scroll down = secondary profile</p>
+        </div>
+        <div class="card">
+            <div class="label">Safety interlock (both must be held)</div>
+            <div class="row">
+                <select id="interlock-primary">
+                    <option value="M4">M4 (Back)</option>
+                    <option value="M5">M5 (Forward)</option>
+                    <option value="MMB">Middle</option>
+                </select>
+                <select id="interlock-secondary">
+                    <option value="M5" selected>M5 (Forward)</option>
+                    <option value="M4">M4 (Back)</option>
+                    <option value="MMB">Middle</option>
+                </select>
+            </div>
+            <p class="hint">Simulation only runs while both buttons are held + system enabled.</p>
+            <label style="display:flex;align-items:center;gap:8px;margin-top:10px;font-size:0.82rem;">
+                <input type="checkbox" id="interlock-required"> Require interlock (M4+M5) to fire
+            </label>
+        </div>
+        <div class="card">
+            <div class="label">Import / Export</div>
+            <div class="row">
+                <button class="btn" id="export-btn">Export active</button>
+                <label class="btn btn-primary" style="text-align:center;cursor:pointer;">
+                    Import<input type="file" id="import-file" accept=".json" hidden>
+                </label>
+            </div>
+        </div>
+    </div>
+
+    <div id="panel-motion" class="tab-panel">
+        <div class="card">
+            <div class="label">Physiological fingerprint</div>
+            <div class="row">
+                <div>
+                    <div class="label">Tremor (Hz)</div>
+                    <input type="number" id="tremor-hz" min="8" max="12" step="0.1" value="10">
+                </div>
+                <div>
+                    <div class="label">Fatigue rate</div>
+                    <input type="number" id="fatigue-rate" min="0.005" max="0.1" step="0.005" value="0.025">
+                </div>
+            </div>
+            <div class="row" style="margin-top:8px;">
+                <select id="phenotype">
+                    <option value="Conservative">Conservative</option>
+                    <option value="Aggressive">Aggressive</option>
+                </select>
+                <input type="number" id="vertical-asymmetry" min="1.15" max="1.25" step="0.01" value="1.2" title="Vertical asymmetry">
+            </div>
+            <p class="hint">Biomechanical engine: minimum-jerk, spring-damper, seeded noise layers.</p>
+        </div>
+        <div class="card">
+            <div class="label">Toggle key (enable/disable system)</div>
+            <select id="toggle-button">
+                <option value="MMB">Middle Mouse</option>
+                <option value="M4">M4</option>
+                <option value="M5" selected>M5</option>
+            </select>
+        </div>
+    </div>
+
+    <div id="panel-guns" class="tab-panel">
+        <div class="card">
+            <div class="label">Game config</div>
+            <select id="config-files"></select>
+            <div class="row" style="margin-top:8px;">
+                <input type="text" id="new-config-name" placeholder="New config…">
+                <button class="btn btn-primary" id="create-config">Create</button>
+            </div>
+        </div>
+        <div class="card">
+            <div class="label">Gun presets</div>
+            <input type="text" id="gun-search" placeholder="Search…" style="margin-bottom:8px;">
+            <select id="guns-dropdown"></select>
+            <div class="row" style="margin-top:8px;">
+                <input type="text" id="gun-name" placeholder="Gun name">
+                <button class="btn btn-primary" id="save-gun">Save</button>
+            </div>
+            <div class="row" style="margin-top:8px;">
+                <button class="btn" id="overwrite-gun">Overwrite</button>
+                <button class="btn btn-danger" id="delete-gun">Delete</button>
+            </div>
+        </div>
+    </div>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+let ws, activeSlot = 1, secondarySlot = 2, allGuns = [];
+
+function connectWs() {
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    ws = new WebSocket(proto + '//' + location.host + '/ws');
+    ws.onopen = () => pushState();
+    ws.onclose = () => setTimeout(connectWs, 2000);
+}
+
+function statePayload() {
+    return {
+        pull_down: parseFloat($('pull-down').value) || 0,
+        horizontal: parseFloat($('horizontal').value) || 0,
+        horizontal_delay_ms: parseInt($('h-delay').value) || 0,
+        horizontal_duration_ms: parseInt($('h-duration').value) || 0,
+        tap_strength: parseFloat($('tap-strength').value) || 0.5,
+        tap_threshold_ms: parseInt($('tap-threshold').value) || 180,
+        hold_ramp_ms: parseInt($('hold-ramp').value) || 200,
+        spray_ramp_ms: parseInt($('spray-ramp').value) || 300,
+        tremor_hz: parseFloat($('tremor-hz').value) || 10,
+        fatigue_rate: parseFloat($('fatigue-rate').value) || 0.025,
+        phenotype: $('phenotype').value,
+        vertical_asymmetry: parseFloat($('vertical-asymmetry').value) || 1.2,
+        interlock_primary: $('interlock-primary').value,
+        interlock_secondary: $('interlock-secondary').value,
+        interlock_required: $('interlock-required').checked,
+        active_slot: activeSlot,
+        secondary_slot: secondarySlot,
+    };
+}
+
+function pushState() {
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(statePayload()));
+}
+
+function bindPair(slider, input) {
+    slider.oninput = () => { input.value = slider.value; pushState(); saveActiveProfile(); };
+    input.oninput = () => { slider.value = input.value; pushState(); saveActiveProfile(); };
+}
+
+function setupTabs() {
+    document.querySelectorAll('.tab').forEach(t => {
+        t.onclick = () => {
+            document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+            document.querySelectorAll('.tab-panel').forEach(x => x.classList.remove('active'));
+            t.classList.add('active');
+            $('panel-' + t.dataset.tab).classList.add('active');
+        };
+    });
+}
+
+async function fetchAccess() {
+    const r = await fetch('/access');
+    const d = await r.json();
+    $('access-links').innerHTML =
+        `<strong>This device:</strong> <a href="${d.local}">${d.local}</a><br>` +
+        `<strong>Phone / LAN:</strong> <a href="${d.lan}">${d.lan}</a>`;
+}
+
+async function refreshStatus() {
+    const d = await fetch('/status').then(r => r.json());
+    const on = d.is_enabled;
+    $('toggle-btn').textContent = on ? 'ON' : 'OFF';
+    $('toggle-btn').className = on ? 'enabled' : 'disabled';
+    $('status-pill').textContent = on ? 'ON' : 'OFF';
+    $('status-pill').className = 'status-pill ' + (on ? 'on' : 'off');
+    $('interlock-pill').textContent = d.interlock_held ? 'Interlock: ACTIVE' : 'Interlock: waiting';
+    $('strength-meter').style.width = Math.round((d.output_strength || 0) * 100) + '%';
+    if (d.toggle_button) $('toggle-button').value = d.toggle_button;
+}
+
+async function loadProfiles() {
+    const profiles = await fetch('/profiles').then(r => r.json());
+    const grid = $('profile-grid');
+    grid.innerHTML = '';
+    profiles.forEach(p => {
+        const chip = document.createElement('div');
+        chip.className = 'profile-chip' +
+            (p.slot === activeSlot ? ' active' : '') +
+            (p.slot === secondarySlot ? ' secondary' : '');
+        chip.textContent = p.slot;
+        chip.title = p.name;
+        chip.onclick = () => { activeSlot = p.slot; applyProfile(p); renderProfileGrid(profiles); };
+        grid.appendChild(chip);
+    });
+}
+
+function renderProfileGrid(profiles) {
+    document.querySelectorAll('.profile-chip').forEach((chip, i) => {
+        const slot = profiles[i].slot;
+        chip.className = 'profile-chip' +
+            (slot === activeSlot ? ' active' : '') +
+            (slot === secondarySlot ? ' secondary' : '');
+    });
+}
+
+function applyProfile(p) {
+    $('pull-down').value = p.pull_down; $('pull-down-slider').value = p.pull_down;
+    $('horizontal').value = p.horizontal; $('horizontal-slider').value = p.horizontal;
+    $('h-delay').value = p.horizontal_delay_ms;
+    $('h-duration').value = p.horizontal_duration_ms;
+    $('tap-strength').value = p.tap_strength ?? 0.5;
+    $('tap-threshold').value = p.tap_threshold_ms ?? 180;
+    $('hold-ramp').value = p.hold_ramp_ms ?? 200;
+    $('spray-ramp').value = p.spray_ramp_ms ?? 300;
+    $('tremor-hz').value = p.tremor_hz ?? 10;
+    $('fatigue-rate').value = p.fatigue_rate ?? 0.025;
+    $('phenotype').value = p.phenotype ?? 'Conservative';
+    $('vertical-asymmetry').value = p.vertical_asymmetry ?? 1.2;
+    $('interlock-primary').value = p.interlock_primary ?? 'M4';
+    $('interlock-secondary').value = p.interlock_secondary ?? 'M5';
+    $('interlock-required').checked = !!p.interlock_required;
+    secondarySlot = p.secondary_slot ?? 2;
+    pushState();
+}
+
+async function saveActiveProfile() {
+    await fetch('/profiles/' + activeSlot, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(statePayload()),
+    });
+}
+
+document.addEventListener('wheel', e => {
+    e.preventDefault();
+    fetch('/profiles').then(r => r.json()).then(profiles => {
+        if (e.deltaY > 0) {
+            const sec = profiles.find(p => p.slot === secondarySlot) || profiles[1];
+            applyProfile(sec);
+            activeSlot = sec.slot;
+        } else {
+            const pri = profiles.find(p => p.slot === activeSlot) || profiles[0];
+            applyProfile(pri);
+        }
+        loadProfiles();
+    });
+}, { passive: false });
+
+$('toggle-btn').onclick = () => fetch('/toggle', { method: 'POST' }).then(() => refreshStatus());
+$('toggle-button').onchange = () => fetch('/toggle-button', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ button: $('toggle-button').value }),
+});
+
+['tap-strength','tap-threshold','hold-ramp','spray-ramp','h-delay','h-duration',
+ 'tremor-hz','fatigue-rate','phenotype','vertical-asymmetry',
+ 'interlock-primary','interlock-secondary','interlock-required'].forEach(id => {
+    $(id).onchange = () => { pushState(); saveActiveProfile(); };
+});
+
+$('export-btn').onclick = () => window.location.href = '/profiles/' + activeSlot + '/export';
+$('import-file').onchange = async e => {
+    const f = e.target.files[0]; if (!f) return;
+    const text = await f.text();
+    await fetch('/profiles/' + activeSlot + '/import', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: text,
+    });
+    loadProfiles();
+};
+
+async function fetchGuns() {
+    allGuns = Object.keys(await fetch('/configs').then(r => r.json()));
+    filterGuns();
+}
+
+function filterGuns() {
+    const q = $('gun-search').value.toLowerCase();
+    const sel = $('guns-dropdown');
+    sel.innerHTML = '<option value="">— Select gun —</option>';
+    allGuns.filter(g => !q || g.toLowerCase().includes(q)).forEach(g => {
+        const o = document.createElement('option'); o.value = g; o.textContent = g; sel.appendChild(o);
+    });
+}
+
+$('guns-dropdown').onchange = async () => {
+    const gun = $('guns-dropdown').value; if (!gun) return;
+    const data = await fetch('/configs').then(r => r.json());
+    const c = data[gun];
+    $('pull-down').value = c.pull_down ?? 0; $('pull-down-slider').value = c.pull_down ?? 0;
+    $('horizontal').value = c.horizontal ?? 0; $('horizontal-slider').value = c.horizontal ?? 0;
+    $('h-delay').value = c.horizontal_delay_ms ?? 500;
+    $('h-duration').value = c.horizontal_duration_ms ?? 2000;
+    pushState(); saveActiveProfile();
+};
+
+$('save-gun').onclick = async () => {
+    const name = $('gun-name').value.trim(); if (!name) return alert('Enter gun name');
+    await fetch('/configs', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ gun_name: name, pull_down_value: +$('pull-down').value,
+            horizontal_value: +$('horizontal').value, horizontal_delay_ms: +$('h-delay').value,
+            horizontal_duration_ms: +$('h-duration').value }) });
+    fetchGuns();
+};
+
+async function fetchConfigFiles() {
+    const d = await fetch('/config-files').then(r => r.json());
+    const sel = $('config-files');
+    sel.innerHTML = '';
+    d.files.forEach(f => { const o = document.createElement('option'); o.value = f; o.textContent = f.replace('.json',''); sel.appendChild(o); });
+    sel.value = d.current;
+    sel.onchange = () => fetch('/config-files/switch', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename: sel.value }) }).then(() => fetchGuns());
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    setupTabs();
+    bindPair($('pull-down-slider'), $('pull-down'));
+    bindPair($('horizontal-slider'), $('horizontal'));
+    connectWs();
+    fetchAccess();
+    loadProfiles();
+    fetchGuns();
+    fetchConfigFiles();
+    refreshStatus();
+    setInterval(refreshStatus, 250);
+});
+</script>
+</body>
+</html>
