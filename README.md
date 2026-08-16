@@ -1,70 +1,152 @@
 # PulseMotion Input Calibration Suite
 
-Local web app for calibrating input compensation with biomechanical motion modeling, 40 portable profiles, and phone-friendly LAN access.
+**Repo:** https://github.com/alexg0dev/pulsemotion
 
-## Features
+Local web app for input calibration with biomechanical motion modeling, 40 profiles, tap-vs-hold compensation, and phone-friendly LAN access.
 
-- **Tap vs hold**: Quick LMB taps apply ~50% compensation (configurable). Sustained hold ramps to 100% over `hold_ramp_ms`, with an optional spray ramp for full-auto.
-- **Biomechanical engine**: Minimum-jerk trajectories, spring-damper dynamics, seeded Simplex/OU noise (macro drift, micro correction, physiological tremor).
-- **40 local profiles**: Stored as JSON in `profiles/` — import, export, duplicate, no accounts or cloud.
-- **Scroll profile switching**: In the web UI, scroll up/down to switch primary/secondary profiles.
-- **Safety interlock** (optional): Hold M4 + M5 while firing when enabled.
-- **Gun presets**: Original per-game gun configs still work under the Guns tab.
-- **Phone access**: Open the LAN URL shown at startup on any device on the same Wi‑Fi.
+---
 
-## Requirements
+## Run on a different PC (full guide)
 
-- Python 3.10+
-- Makcu device
+### 1. Clone the repo
 
-## Setup
+**Option A — Git (recommended)**
+
+```bash
+git clone https://github.com/alexg0dev/pulsemotion.git
+cd pulsemotion
+```
+
+**Option B — Download ZIP**
+
+1. Open https://github.com/alexg0dev/pulsemotion  
+2. Click **Code → Download ZIP**  
+3. Extract the folder anywhere (e.g. `C:\pulsemotion`)
+
+### 2. Install Python
+
+- Download **Python 3.10+** from https://www.python.org/downloads/  
+- During install, check **"Add Python to PATH"**
+
+### 3. Install dependencies
+
+**Windows — double-click:**
+
+```
+setup.bat
+```
+
+**Or in terminal:**
 
 ```bash
 pip install -r requirements.txt
 ```
 
-Allow port 8000 through Windows Firewall (PowerShell as admin):
+### 4. Allow firewall (Windows, run PowerShell as admin)
 
 ```powershell
-New-NetFirewallRule -DisplayName "PulseMotion Port 8000" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 8000
+New-NetFirewallRule -DisplayName "PulseMotion" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 8000-8020
 ```
 
-## Usage
+(Ports 8000–8020 covers auto-fallback if 8000 is busy.)
+
+### 5. Connect Makcu
+
+Plug in your Makcu device before starting. The app retries connection automatically if not found at first.
+
+### 6. Start the app
+
+**Windows — double-click:**
+
+```
+start.bat
+```
+
+**Or in terminal:**
 
 ```bash
 python truly.py
 ```
 
-Console output:
+Keep the console window **open** while using PulseMotion.
+
+### 7. Open the UI
+
+The console prints URLs like:
 
 ```
-PulseMotion Input Calibration Suite
 This PC:     http://localhost:8000
 Phone/LAN:   http://192.168.x.x:8000
 ```
 
-Open either URL in a browser. Add the LAN link to your phone home screen for quick access (PWA manifest included).
+- **Same PC:** open `http://localhost:8000` (or whatever port it shows)  
+- **Phone / other device:** same Wi‑Fi → open the **Phone/LAN** URL
+
+---
+
+## What's included in the repo
+
+| Folder / file | Purpose |
+|---------------|---------|
+| `truly.py` | Main app (FastAPI server + mouse loop) |
+| `start.bat` | Launch on Windows |
+| `setup.bat` | First-time install on Windows |
+| `engine/` | Biomechanical motion engine |
+| `profiles/` | 40 local calibration profiles (JSON) |
+| `configs/` | Gun presets (R6, Rust, etc.) |
+| `static/` | Web UI |
+| `mouse/` | Makcu driver wrapper |
+| `requirements.txt` | Python dependencies |
+
+Everything you need is in the repo — no separate downloads.
+
+---
+
+## Features
+
+- **Tap vs hold** — taps ~50% compensation, hold ramps to 100%
+- **Humanization** — tremor, drift, variable timing (Motion tab → intensity slider)
+- **40 profiles** — import/export JSON, scroll to switch in UI
+- **Gun presets** — per-weapon configs under Guns tab
+- **Optional interlock** — M4 + M5 must be held when enabled
+
+---
 
 ## Tap / Hold behavior
 
 | Action | Effect |
 |--------|--------|
 | Quick tap (< `tap_threshold_ms`) | `tap_strength` × pull (default 50%) |
-| Hold past threshold | Ramps from tap strength → 100% over `hold_ramp_ms` |
-| Sustained spray | Optional fine ramp via `spray_ramp_ms` |
+| Hold past threshold | Ramps to 100% over `hold_ramp_ms` |
+| Sustained spray | Fine ramp via `spray_ramp_ms` |
 
-Live output strength is shown in the UI meter while firing.
+---
 
-## Profiles
+## Troubleshooting
 
-Each profile (`profiles/profile_01.json` … `profile_40.json`) stores calibration values, tremor fingerprint, interlock buttons, and tap/hold settings. Copy the `profiles/` folder to back up or move to another PC.
+| Problem | Fix |
+|---------|-----|
+| Window closes instantly | Port 8000 busy — use `start.bat`; app auto-picks next free port |
+| `Python not found` | Reinstall Python with **Add to PATH** checked |
+| `Makcu device not found` | Plug in Makcu, install Makcu drivers, restart app |
+| Phone can't connect | Same Wi‑Fi, run firewall rule, use **Phone/LAN** URL from console |
+| Wrong port in browser | Read the port number printed at startup (may be 8001, 8002…) |
+
+---
 
 ## Controls
 
-- **Toggle key** (M4/M5/MMB): Enable/disable the system
-- **Interlock** (optional): Both side buttons must be held to compensate
-- **LMB**: Fire — compensation strength depends on tap vs hold
+- **Toggle key** (M4/M5/MMB): Enable/disable system  
+- **LMB**: Fire — strength depends on tap vs hold  
+- **Interlock** (optional): Both side buttons held while firing  
 
-## Legacy gun configs
+---
 
-Game configs remain in `configs/` (e.g. `r6.json`, `rust.json`).
+## Sync settings between PCs
+
+Copy these folders to move your setup:
+
+- `profiles/` — calibration profiles  
+- `configs/` — gun presets  
+
+Or use **Import/Export** in the web UI (Profiles tab).
