@@ -275,6 +275,9 @@ class AppState:
                 "phenotype": self.phenotype,
                 "humanization_intensity": self.humanization_intensity,
                 "timing_variance": self.timing_variance,
+                "makcu_connected": makcu_controller.is_connected(),
+                "makcu": makcu_controller.get_debug(),
+                "last_move": motion_engine.last_move,
             }
 
 
@@ -320,6 +323,7 @@ def mouse_control_loop() -> None:
         enabled = app_state.get_enabled() and (interlock if need_interlock else True)
 
         dt, skip_tick = motion_engine.next_interval()
+        makcu_controller.refresh_button_states()
 
         if enabled and lmb_down:
             if not lmb_was_down:
@@ -340,20 +344,29 @@ def mouse_control_loop() -> None:
             )
             app_state.set_output_strength(strength)
 
-            if not skip_tick:
-                pull_value = params["pull_down"] * strength
-                target_y = pull_value / 5.0 if pull_value > 0 else 0.0
+            pull_value = params["pull_down"] * strength
+            target_y = pull_value / 5.0 if pull_value > 0 else 0.0
 
-                target_x = 0.0
-                delay = params["horizontal_delay_ms"]
-                duration = params["horizontal_duration_ms"]
-                if hold_ms >= delay and (duration == 0 or hold_ms <= delay + duration):
-                    h_value = params["horizontal"] * strength
-                    target_x = h_value / 5.0
+            target_x = 0.0
+            delay = params["horizontal_delay_ms"]
+            duration = params["horizontal_duration_ms"]
+            if hold_ms >= delay and (duration == 0 or hold_ms <= delay + duration):
+                h_value = params["horizontal"] * strength
+                target_x = h_value / 5.0
 
+            if skip_tick:
+                time.sleep(dt * 0.5)
+            else:
                 ix, iy = motion_engine.step(target_x, target_y, strength, engaged=True, dt=dt)
                 if ix or iy:
                     makcu_controller.simple_move_mouse(ix, iy)
+                elif target_y > 0 or target_x != 0:
+                    direct_y = round(pull_value / 5) if pull_value > 0 else 0
+                    direct_x = round(params["horizontal"] * strength / 5) if (
+                        hold_ms >= delay and (duration == 0 or hold_ms <= delay + duration)
+                    ) else 0
+                    if direct_y or direct_x:
+                        makcu_controller.simple_move_mouse(direct_x, direct_y)
         else:
             if lmb_was_down:
                 motion_engine.end_activation()
