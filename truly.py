@@ -10,7 +10,7 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 
-from engine.biomechanical import BiomechanicalEngine, ProfileFingerprint
+from engine.strength import compute_strength
 from mouse.makcu import makcu_controller
 from profiles.manager import (
     DEFAULT_PROFILE_COUNT,
@@ -162,17 +162,6 @@ class AppState:
         self.timing_variance = float(p.get("timing_variance", 0.35))
         self.profile_seed = int(p.get("seed", 1000 + self.active_slot * 137))
 
-    def fingerprint(self) -> ProfileFingerprint:
-        return ProfileFingerprint(
-            seed=self.profile_seed,
-            tremor_hz=self.tremor_hz,
-            fatigue_rate=self.fatigue_rate,
-            phenotype=self.phenotype,
-            vertical_asymmetry=self.vertical_asymmetry,
-            humanization_intensity=self.humanization_intensity,
-            timing_variance=self.timing_variance,
-        )
-
     def update_from_ws(self, msg: dict) -> None:
         with self.lock:
             for key, attr, conv in (
@@ -297,36 +286,29 @@ class AppState:
             }
         status["makcu_connected"] = makcu_controller.is_connected()
         status["makcu"] = makcu_controller.get_debug()
-        status["last_move"] = motion_engine.last_move
+        status["last_move"] = getattr(app_state, "last_move", (0, 0))
         return status
 
 
 app_state = AppState()
-motion_engine = BiomechanicalEngine(app_state.fingerprint())
+app_state.last_move = (0, 0)
 
 
 def mouse_control_loop() -> None:
+    """Original Truly recoil loop + tap/hold strength + LMB+RMB requirement."""
     makcu_controller.StartButtonListener()
     toggle_was_pressed = False
     lmb_hold_start: float | None = None
-    lmb_was_down = False
-    last_fp_key: tuple | None = None
     last_hw_toggle_at = 0.0
 
     while True:
         if not makcu_controller.is_connected():
             time.sleep(0.5)
             makcu_controller.connect()
-            btn = app_state.get_toggle_button()
-            toggle_was_pressed = makcu_controller.get_button_state(btn)
+            toggle_was_pressed = makcu_controller.get_button_state(app_state.get_toggle_button())
             continue
 
         params = app_state.get_motion_params()
-        fp = app_state.fingerprint()
-        fp_key = (fp.seed, fp.tremor_hz, fp.humanization_intensity, fp.timing_variance, fp.phenotype)
-        if fp_key != last_fp_key:
-            motion_engine.set_fingerprint(fp)
-            last_fp_key = fp_key
 
         btn = app_state.get_toggle_button()
         toggle_pressed = makcu_controller.get_button_state(btn)
@@ -347,30 +329,19 @@ def mouse_control_loop() -> None:
 
         toggle_was_pressed = toggle_pressed
 
-        interlock = makcu_controller.get_interlock_held(
-            params["interlock_primary"],
-            params["interlock_secondary"],
-        )
-        app_state.set_interlock_held(interlock)
-
         lmb_down = makcu_controller.get_button_state("LMB")
         rmb_down = makcu_controller.get_button_state("RMB")
-        active = app_state.get_enabled()
+        app_state.set_interlock_held(lmb_down and rmb_down)
 
-        dt, skip_tick = motion_engine.next_interval()
-        makcu_controller.refresh_button_states()
+        enabled = app_state.get_enabled()
 
-        if active and lmb_down and rmb_down:
-            if not lmb_was_down:
-                motion_engine.begin_activation()
-            lmb_was_down = True
-
+        if enabled and lmb_down and rmb_down:
             now = time.time()
             if lmb_hold_start is None:
                 lmb_hold_start = now
 
             hold_ms = (now - lmb_hold_start) * 1000
-            strength = motion_engine.compute_strength(
+            strength = compute_strength(
                 hold_ms,
                 params["tap_threshold_ms"],
                 params["tap_strength"],
@@ -380,37 +351,24 @@ def mouse_control_loop() -> None:
             app_state.set_output_strength(strength)
 
             pull_value = params["pull_down"] * strength
-            target_y = pull_value / 5.0 if pull_value > 0 else 0.0
+            y_move = round(pull_value / 5) if pull_value > 0 else 0
 
-            target_x = 0.0
+            x_move = 0
             delay = params["horizontal_delay_ms"]
             duration = params["horizontal_duration_ms"]
             if hold_ms >= delay and (duration == 0 or hold_ms <= delay + duration):
                 h_value = params["horizontal"] * strength
-                target_x = h_value / 5.0
+                x_move = round(h_value / 5)
 
-            if skip_tick:
-                time.sleep(dt * 0.5)
-            else:
-                ix, iy = motion_engine.step(target_x, target_y, strength, engaged=True, dt=dt)
-                if ix or iy:
-                    makcu_controller.simple_move_mouse(ix, iy)
-                elif target_y > 0 or target_x != 0:
-                    direct_y = round(pull_value / 5) if pull_value > 0 else 0
-                    direct_x = round(params["horizontal"] * strength / 5) if (
-                        hold_ms >= delay and (duration == 0 or hold_ms <= delay + duration)
-                    ) else 0
-                    if direct_y or direct_x:
-                        makcu_controller.simple_move_mouse(direct_x, direct_y)
+            if x_move != 0 or y_move != 0:
+                makcu_controller.simple_move_mouse(x_move, y_move)
+                app_state.last_move = (x_move, y_move)
         else:
-            if lmb_was_down:
-                motion_engine.end_activation()
-            lmb_was_down = False
             lmb_hold_start = None
             app_state.set_output_strength(0.0)
-            motion_engine.step(0, 0, 0, engaged=False, dt=dt)
+            app_state.last_move = (0, 0)
 
-        time.sleep(dt)
+        time.sleep(0.01)
 
 
 @asynccontextmanager
@@ -564,7 +522,6 @@ async def update_profile(slot: int, body: ProfileUpdate):
     write_profile(slot, data)
     if slot == app_state.active_slot:
         app_state._apply_profile_dict(data)
-        motion_engine.set_fingerprint(app_state.fingerprint())
     return {"slot": slot, **read_profile(slot)}
 
 
@@ -584,7 +541,6 @@ async def import_profile_file(slot: int, body: dict):
     write_profile(slot, body)
     if slot == app_state.active_slot:
         app_state._apply_profile_dict(body)
-        motion_engine.set_fingerprint(app_state.fingerprint())
     return {"slot": slot, **read_profile(slot)}
 
 
@@ -675,7 +631,7 @@ if __name__ == "__main__":
         print(f"  Note: Port {preferred} was busy — using {port} instead.")
     print(f"  This PC:     http://localhost:{port}")
     print(f"  Phone/LAN:   http://{ip}:{port}")
-    print("  Hold LMB + RMB (aim + fire) for compensation when ON.")
+    print("  Truly-style recoil — ON in UI, then hold RMB + LMB in game.")
     print("  Keep this window open while using PulseMotion.\n")
 
     try:
